@@ -1,0 +1,30 @@
+# Local agent / working notes - never commit
+CLAUDE.md
+CODEX_CHANGELOG.md
+GEMINI.md
+AGENTS.md
+.claude/
+.codex/
+
+# Backups
+*.bak
+*.bak.*
+*.orig
+
+# Local test / scratch
+brave-v*-win32-x64.zip
+app.new/
+app.old/
+log/
+*.log
+
+# Windows / editor cruft
+Thumbs.db
+desktop.ini
+*.swp
+.vs/
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
