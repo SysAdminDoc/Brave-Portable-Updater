@@ -32,13 +32,17 @@
 .PARAMETER Rollback
     Swap app.old back to app without downloading. Requires a previous update's app.old.
 
+.PARAMETER BackupProfile
+    Copy data\ to backup\data-<timestamp>\ before updating. Keeps 3 most recent.
+
 .EXAMPLE
     .\Update-BravePortable.ps1
     .\Update-BravePortable.ps1 -Channel beta
     .\Update-BravePortable.ps1 -PortableRoot "D:\Apps\Brave" -Force
     .\Update-BravePortable.ps1 -Rollback
+    .\Update-BravePortable.ps1 -WhatIf
 #>
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$PortableRoot = "C:\brave-portable-work",
     [ValidateSet("stable", "beta", "nightly")]
@@ -46,7 +50,8 @@ param(
     [switch]$Force,
     [switch]$Quiet,
     [string]$GitHubToken,
-    [switch]$Rollback
+    [switch]$Rollback,
+    [switch]$BackupProfile
 )
 
 $ScriptVersion = "1.1.0"
@@ -188,11 +193,15 @@ $channelKeyword = @{
     'nightly' = 'Nightly'
 }[$Channel]
 
-# --- Query GitHub releases ---
+# --- Query GitHub releases (with ETag caching) ---
 Write-Log "Querying GitHub for latest $Channel release..."
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ghHeaders = @{ 'User-Agent' = 'Brave-Portable-Updater' }
 if ($GitHubToken) { $ghHeaders['Authorization'] = "Bearer $GitHubToken" }
+$etagFile = Join-Path $logDir '.etag'
+if (-not $Force -and (Test-Path $etagFile)) {
+    $ghHeaders['If-None-Match'] = (Get-Content $etagFile -Raw).Trim()
+}
 try {
     $ghResponse = Invoke-WebRequest `
         -Uri "https://api.github.com/repos/brave/brave-browser/releases?per_page=80" `
@@ -202,11 +211,20 @@ try {
     if ($rlRemaining -and [int]$rlRemaining -le 10) {
         Write-Log "GitHub API rate limit low: $rlRemaining requests remaining" 'WARN'
     }
+    $newEtag = $ghResponse.Headers['ETag']
+    if ($newEtag) {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        [IO.File]::WriteAllText($etagFile, $newEtag, $utf8NoBom)
+    }
 }
 catch {
     $statusCode = $null
     if ($_.Exception.Response) { $statusCode = [int]$_.Exception.Response.StatusCode }
-    if ($statusCode -eq 403 -or $statusCode -eq 429) {
+    if ($statusCode -eq 304) {
+        Write-Log "No new releases since last check (HTTP 304)"
+        exit 0
+    }
+    elseif ($statusCode -eq 403 -or $statusCode -eq 429) {
         Write-Log "GitHub API rate limit exceeded. Wait or use -GitHubToken for 5000 req/hr." 'ERR'
     }
     else {
@@ -245,6 +263,29 @@ Write-Log "Latest $Channel : $selectedVersion ($($selectedAsset.name), $sizeMB M
 # --- Skip if already current ---
 if ($currentVersion -and -not $Force -and $currentVersion -ge $selectedVersion) {
     Write-Log "Already up-to-date ($currentVersion >= $selectedVersion). Use -Force to reinstall."
+    exit 0
+}
+
+# --- Metered connection check ---
+if (-not $Force) {
+    try {
+        [void][Windows.Networking.Connectivity.NetworkInformation, Windows, ContentType = WindowsRuntime]
+        $profile = [Windows.Networking.Connectivity.NetworkInformation]::GetInternetConnectionProfile()
+        if ($profile) {
+            $cost = $profile.GetConnectionCost()
+            if ($cost.ApproachingDataLimit -or $cost.OverDataLimit -or $cost.Roaming -or
+                ($cost.NetworkCostType -ne [Windows.Networking.Connectivity.NetworkCostType]::Unrestricted -and
+                 $cost.NetworkCostType -ne [Windows.Networking.Connectivity.NetworkCostType]::Unknown)) {
+                Write-Log "Metered connection detected ($($cost.NetworkCostType)) - skipping $sizeMB MB download. Use -Force to override." 'WARN'
+                exit 0
+            }
+        }
+    }
+    catch { }
+}
+
+# --- WhatIf gate ---
+if (-not $PSCmdlet.ShouldProcess("Brave $Channel $currentVersion -> $selectedVersion ($sizeMB MB)", 'Download and install')) {
     exit 0
 }
 
@@ -372,6 +413,28 @@ catch {
     Write-Log "Could not check Authenticode signature: $($_.Exception.Message)" 'WARN'
 }
 
+# --- Profile backup (optional) ---
+if ($BackupProfile) {
+    $backupDir = Join-Path $PortableRoot 'backup'
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $backupDest = Join-Path $backupDir "data-$stamp"
+    Write-Log "Backing up data\ to $backupDest..."
+    try {
+        if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+        Copy-Item -Path $dataDir -Destination $backupDest -Recurse -Force -ErrorAction Stop
+        Write-Log "Profile backup complete"
+        $existing = Get-ChildItem $backupDir -Directory | Where-Object { $_.Name -match '^data-' } |
+            Sort-Object Name -Descending | Select-Object -Skip 3
+        foreach ($old in $existing) {
+            Remove-Item $old.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Log "Pruned old backup: $($old.Name)"
+        }
+    }
+    catch {
+        Write-Log "Profile backup failed: $($_.Exception.Message) - continuing with update" 'WARN'
+    }
+}
+
 Write-Log "Swapping app directories..."
 if (Test-Path $appDir) {
     try {
@@ -415,6 +478,17 @@ if (Test-Path $portappJson) {
     catch {
         Write-Log "Could not update portapp.json: $($_.Exception.Message)" 'WARN'
     }
+}
+
+# --- Suppress Brave's built-in update nag (requires admin) ---
+try {
+    $regPath = 'HKLM:\SOFTWARE\WOW6432Node\BraveSoftware\UpdateDev'
+    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+    Set-ItemProperty -Path $regPath -Name 'LastCheckPeriodSec' -Value 0 -Type DWord -Force -ErrorAction Stop
+    Write-Log "Suppressed Brave update nag (registry)"
+}
+catch {
+    Write-Log "Could not suppress update nag (non-admin context is OK): $($_.Exception.Message)" 'WARN'
 }
 
 # --- Cleanup + verify ---

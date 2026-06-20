@@ -27,6 +27,11 @@ This updater fixes both, plus a few extras:
 - **GitHub API rate-limit awareness.** Detects 403/429 responses and suggests using `-GitHubToken`.
 - **Log rotation** at 1 MB (keeps one backup).
 - **Logs to `<root>\log\update.log`** in ISO timestamp format.
+- **Metered connection detection.** Skips download on metered/capped networks unless `-Force` is used.
+- **Profile backup** with `-BackupProfile`. Copies `data\` before updating, keeps the 3 most recent backups.
+- **Suppresses Brave's update nag** via registry key (when running as admin).
+- **`-WhatIf` support.** Preview what the updater would do without making changes.
+- **ETag caching.** Skips redundant GitHub API calls when no new releases exist.
 - **Refuses to run** if the target dir doesn't look like a Portapps install (no `brave-portable.exe`, no `data\`).
 
 ## Files
@@ -73,6 +78,12 @@ Or download the ZIP and extract anywhere.
 
 # Use a GitHub token to avoid API rate limits
 .\Update-BravePortable.ps1 -GitHubToken "ghp_..."
+
+# Preview what would happen without making changes
+.\Update-BravePortable.ps1 -WhatIf
+
+# Back up profile data before updating
+.\Update-BravePortable.ps1 -BackupProfile
 ```
 
 Exit codes: `0` already-current or updated successfully, non-zero on failure.

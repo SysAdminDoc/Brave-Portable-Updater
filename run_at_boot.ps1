@@ -18,6 +18,22 @@ if (-not (Test-Path $TaskCommand)) {
     exit 1
 }
 
+# Warn if the script directory is writable by non-admin users (TOCTOU risk)
+try {
+    $acl = Get-Acl $ScriptDir
+    $risky = $acl.Access | Where-Object {
+        $_.IdentityReference -match '(Users|Everyone|Authenticated Users)' -and
+        $_.FileSystemRights -match '(Write|Modify|FullControl)' -and
+        $_.AccessControlType -eq 'Allow'
+    }
+    if ($risky) {
+        Write-Warning "Script directory is writable by non-admin users."
+        Write-Warning "A scheduled task with Highest privilege pointing here is a privilege escalation risk."
+        Write-Warning "Consider moving the updater to a protected directory (e.g. C:\Tools\)."
+    }
+}
+catch { }
+
 $TaskTrigger  = New-ScheduledTaskTrigger -AtStartup
 $TaskAction   = New-ScheduledTaskAction -Execute "powershell.exe" `
     -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$TaskCommand`" -Quiet"
