@@ -1,6 +1,6 @@
 # Brave-Portable-Updater
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?style=flat-square&logo=windows)](#compatibility)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?style=flat-square&logo=powershell&logoColor=white)](#usage)
@@ -19,6 +19,7 @@ This updater fixes both, plus a few extras:
 - **Path-scoped process termination.** Only stops `brave.exe` / `brave-portable.exe` whose `.Path` lives under the portable root. The full install is provably untouched.
 - **Version detection from the binary.** Reads `app\brave.exe`'s `VersionInfo.ProductVersion`, strips the Chromium-major prefix, and compares against [github.com/brave/brave-browser](https://github.com/brave/brave-browser) release tags.
 - **Atomic swap.** Extracts to `app.new\`, renames `app` to `app.old`, promotes `app.new` to `app`, then deletes `app.old`. A failed extract leaves the previous install intact.
+- **Authenticode signature verification** on the extracted `brave.exe`. Blocks the update if the binary is not signed by Brave Software, Inc.
 - **Best-effort SHA256 verification** when the release notes publish a hash.
 - **Updates `portapp.json`** so the wrapper UI shows the correct version.
 - **Logs to `<root>\log\update.log`** in ISO timestamp format.
@@ -31,7 +32,7 @@ This updater fixes both, plus a few extras:
 | `Update-BravePortable.ps1` | The updater. |
 | `Update-BravePortable.bat` | Forwards args to the PS1, pauses on non-zero exit. |
 | `update.bat` | One-click default run (stable channel, pauses at end). |
-| `update_then_run_brave.bat` | Update, then launch `brave-portable.exe`. |
+| `update_then_run_brave.bat` | Update, then launch `brave-portable.exe`. Set `PORTABLE_ROOT` env var to override the default path. |
 | `run_at_boot.ps1` | Registers a Scheduled Task that runs the updater at every system startup. |
 
 ## Install
@@ -91,8 +92,9 @@ schtasks /delete /tn BravePortableUpdate /f
 6. Find every `brave.exe` / `brave-portable.exe` process whose `.Path` starts with the portable root. Stop only those. Sleep 2s for file handles to release.
 7. Extract zip to `<root>\app.new\`. If the zip has a single top-level folder, flatten it.
 8. Sanity-check `app.new\brave.exe` exists. If not, abort.
-9. Rename `app` to `app.old`, `app.new` to `app`, then delete `app.old`.
-10. Patch `version` and `date` in `portapp.json` so the wrapper UI is consistent.
+9. Verify the Authenticode signature on `app.new\brave.exe`. Block the swap if the binary is not validly signed.
+10. Rename `app` to `app.old`, `app.new` to `app`, then delete `app.old`.
+11. Patch `version` and `date` in `portapp.json` so the wrapper UI is consistent.
 
 ## Compatibility
 

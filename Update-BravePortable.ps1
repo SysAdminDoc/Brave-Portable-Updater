@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Brave-Portable-Updater v1.0.1 - updates the Brave install inside a
+    Brave-Portable-Updater v1.1.0 - updates the Brave install inside a
     Portapps brave-portable directory, leaving the system-wide install
     and user profile untouched.
 
@@ -40,7 +40,7 @@ param(
     [switch]$Quiet
 )
 
-$ScriptVersion = "1.0.1"
+$ScriptVersion = "1.1.0"
 $ErrorActionPreference = 'Stop'
 
 # --- Paths ---
@@ -240,6 +240,34 @@ if (-not (Test-Path (Join-Path $appNew 'brave.exe'))) {
     Remove-Item $appNew -Recurse -Force
     Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
     exit 1
+}
+
+# --- Authenticode signature verification on extracted brave.exe ---
+$newBraveExe = Join-Path $appNew 'brave.exe'
+try {
+    $sig = Get-AuthenticodeSignature -FilePath $newBraveExe -ErrorAction Stop
+    if ($sig.Status -eq 'Valid') {
+        $thumbprint = $sig.SignerCertificate.Thumbprint
+        $knownThumbs = @(
+            '8903F2BD47465A4F0F080AA7CEEC31A31B74DE42',
+            'F8AC5F11DE7E26383B7A389FC19A2613835799D7'
+        )
+        if ($thumbprint -in $knownThumbs) {
+            Write-Log "Authenticode verified (Brave Software, Inc.)"
+        }
+        else {
+            Write-Log "Authenticode valid but unknown certificate thumbprint: $thumbprint (possible cert rotation)" 'WARN'
+        }
+    }
+    else {
+        Write-Log "Authenticode verification FAILED on brave.exe: $($sig.StatusMessage)" 'ERR'
+        Remove-Item $appNew -Recurse -Force
+        Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+}
+catch {
+    Write-Log "Could not check Authenticode signature: $($_.Exception.Message)" 'WARN'
 }
 
 Write-Log "Swapping app directories..."

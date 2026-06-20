@@ -1,4 +1,4 @@
-# Brave-Portable-Updater v1.0.0 - registers a Scheduled Task that runs
+# Brave-Portable-Updater v1.1.0 - registers a Scheduled Task that runs
 # Update-BravePortable.ps1 at every system startup.
 
 # Elevation check
@@ -9,7 +9,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 $TaskName        = "BravePortableUpdate"
-$TaskDescription = "Brave-Portable-Updater v1.0.0 - check for new Brave release at boot"
+$TaskDescription = "Brave-Portable-Updater v1.1.0 - check for new Brave release at boot"
 $ScriptDir       = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $TaskCommand     = Join-Path $ScriptDir "Update-BravePortable.ps1"
 
