@@ -63,6 +63,7 @@ Or download the ZIP and extract anywhere.
 # Other channels
 .\Update-BravePortable.ps1 -Channel beta
 .\Update-BravePortable.ps1 -Channel nightly
+.\Update-BravePortable.ps1 -Channel auto   # picks whichever channel has the newest release
 
 # Different install location
 .\Update-BravePortable.ps1 -PortableRoot "D:\Apps\Brave"

@@ -18,7 +18,7 @@
     Root of the Portapps install (the directory containing brave-portable.exe).
 
 .PARAMETER Channel
-    stable | beta | nightly (default: stable).
+    stable | beta | nightly | auto (default: stable). Auto picks whichever channel has the newest release.
 
 .PARAMETER Force
     Reinstall even if the installed version is already current.
@@ -45,7 +45,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$PortableRoot = "C:\brave-portable-work",
-    [ValidateSet("stable", "beta", "nightly")]
+    [ValidateSet("stable", "beta", "nightly", "auto")]
     [string]$Channel = "stable",
     [switch]$Force,
     [switch]$Quiet,
@@ -186,6 +186,42 @@ else {
     Write-Log "No existing brave.exe at $braveExe - will install fresh" 'WARN'
 }
 
+# --- Quick version check via versions.brave.com (avoids GitHub API when possible) ---
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$braveApiMap = @{ 'stable' = 'release'; 'beta' = 'beta'; 'nightly' = 'nightly' }
+if ($Channel -eq 'auto') {
+    Write-Log "Channel auto: checking all channels via versions.brave.com..."
+    $bestChannel = 'stable'
+    $bestVer = $null
+    foreach ($ch in @('stable', 'beta', 'nightly')) {
+        try {
+            $vr = (Invoke-WebRequest -Uri "https://versions.brave.com/latest/$($braveApiMap[$ch])-windows-x64.version" `
+                -UseBasicParsing -ErrorAction Stop).Content.Trim()
+            $ver = [Version]$vr
+            Write-Log "  $ch : $vr"
+            if (-not $bestVer -or $ver -gt $bestVer) { $bestVer = $ver; $bestChannel = $ch }
+        }
+        catch { Write-Log "  $ch : unavailable" 'WARN' }
+    }
+    $Channel = $bestChannel
+    Write-Log "Auto-selected channel: $Channel ($bestVer)"
+}
+elseif ($currentVersion -and -not $Force) {
+    try {
+        $braveApiVer = (Invoke-WebRequest -Uri "https://versions.brave.com/latest/$($braveApiMap[$Channel])-windows-x64.version" `
+            -UseBasicParsing -ErrorAction Stop).Content.Trim()
+        $remoteVer = [Version]$braveApiVer
+        if ($currentVersion -ge $remoteVer) {
+            Write-Log "Already up-to-date via quick check ($currentVersion >= $remoteVer)"
+            exit 0
+        }
+        Write-Log "New version available: $remoteVer (installed: $currentVersion)"
+    }
+    catch {
+        Write-Log "versions.brave.com unavailable, falling back to GitHub API" 'WARN'
+    }
+}
+
 # --- Channel keyword for filtering release names ---
 $channelKeyword = @{
     'stable'  = 'Release'
@@ -195,7 +231,6 @@ $channelKeyword = @{
 
 # --- Query GitHub releases (with ETag caching) ---
 Write-Log "Querying GitHub for latest $Channel release..."
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ghHeaders = @{ 'User-Agent' = 'Brave-Portable-Updater' }
 if ($GitHubToken) { $ghHeaders['Authorization'] = "Bearer $GitHubToken" }
 $etagFile = Join-Path $logDir '.etag'
@@ -302,7 +337,7 @@ try {
 catch {
     Write-Log "BITS failed ($($_.Exception.Message)), falling back to Invoke-WebRequest" 'WARN'
     try {
-        $ProgressPreference = 'SilentlyContinue'
+        if ($Quiet) { $ProgressPreference = 'SilentlyContinue' }
         Invoke-WebRequest -Uri $selectedAsset.browser_download_url -OutFile $tempZip -UseBasicParsing -ErrorAction Stop
         Write-Log "Downloaded via Invoke-WebRequest"
     }

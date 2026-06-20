@@ -27,3 +27,26 @@ jobs:
           }
           $warnings = $issues | Where-Object { $_.Severity -eq 'Warning' }
           Write-Host "$($warnings.Count) warning(s), 0 errors."
+
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'NUnit2.5'
+          $config.TestResult.OutputPath = 'TestResults.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults.xml
