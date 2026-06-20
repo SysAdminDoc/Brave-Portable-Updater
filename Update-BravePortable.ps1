@@ -89,6 +89,22 @@ function Write-Log {
     }
 }
 
+function Send-Toast {
+    param([string]$Title, [string]$Body)
+    if (-not $Quiet) { return }
+    try {
+        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+        $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent(
+            [Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+        $nodes = $template.GetElementsByTagName('text')
+        $nodes.Item(0).AppendChild($template.CreateTextNode($Title)) | Out-Null
+        $nodes.Item(1).AppendChild($template.CreateTextNode($Body)) | Out-Null
+        $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Brave Portable Updater').Show($toast)
+    }
+    catch { }
+}
+
 Write-Log "Update-BravePortable v$ScriptVersion starting (channel=$Channel, root=$PortableRoot)"
 
 # --- Rollback: restore app.old without downloading ---
@@ -138,6 +154,7 @@ if ($Rollback) {
         catch { Write-Log "Could not update portapp.json after rollback: $($_.Exception.Message)" 'WARN' }
     }
     Write-Log "Rolled back to $rolledVer"
+    Send-Toast 'Brave Portable Updater' "Rolled back to $rolledVer"
     exit 0
 }
 
@@ -404,4 +421,5 @@ if (Test-Path $portappJson) {
 Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
 $installedNow = (Get-Item $braveExe).VersionInfo.ProductVersion
 Write-Log "Done. Brave $Channel updated: $currentVersion -> $installedNow"
+Send-Toast 'Brave Portable Updater' "Updated: $currentVersion -> $installedNow"
 exit 0
