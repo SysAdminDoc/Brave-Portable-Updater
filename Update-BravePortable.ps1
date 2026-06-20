@@ -8,8 +8,8 @@
 .DESCRIPTION
     Targets C:\brave-portable-work by default. Reads installed version
     from app\brave.exe, queries github.com/brave/brave-browser for the
-    latest release of the chosen channel, downloads the win32-x64 zip,
-    and atomically swaps the contents of app\.
+    latest release of the chosen channel, downloads the matching zip
+    (auto-detects x64/ARM64), and atomically swaps the contents of app\.
 
     Path-scoped: only kills brave.exe / brave-portable.exe whose .Path
     is under the portable root. The full installed Brave is never touched.
@@ -26,10 +26,17 @@
 .PARAMETER Quiet
     Suppress console output (still logs to file).
 
+.PARAMETER GitHubToken
+    Personal access token for GitHub API (raises rate limit from 60 to 5000 req/hr).
+
+.PARAMETER Rollback
+    Swap app.old back to app without downloading. Requires a previous update's app.old.
+
 .EXAMPLE
     .\Update-BravePortable.ps1
     .\Update-BravePortable.ps1 -Channel beta
     .\Update-BravePortable.ps1 -PortableRoot "D:\Apps\Brave" -Force
+    .\Update-BravePortable.ps1 -Rollback
 #>
 [CmdletBinding()]
 param(
@@ -37,7 +44,9 @@ param(
     [ValidateSet("stable", "beta", "nightly")]
     [string]$Channel = "stable",
     [switch]$Force,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [string]$GitHubToken,
+    [switch]$Rollback
 )
 
 $ScriptVersion = "1.1.0"
@@ -62,6 +71,14 @@ if (-not (Test-Path $dataDir)) {
 # --- Logging ---
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 $logFile = Join-Path $logDir 'update.log'
+
+# --- Log rotation (1 MB limit, keep one backup) ---
+if ((Test-Path $logFile) -and (Get-Item $logFile).Length -gt 1MB) {
+    $logBackup = Join-Path $logDir 'update.log.1'
+    if (Test-Path $logBackup) { Remove-Item $logBackup -Force }
+    Rename-Item -Path $logFile -NewName 'update.log.1' -Force
+}
+
 function Write-Log {
     param([string]$Msg, [ValidateSet('INFO', 'WARN', 'ERR')][string]$Level = 'INFO')
     $line = '{0} [{1}] {2}' -f (Get-Date -Format s), $Level, $Msg
@@ -73,6 +90,56 @@ function Write-Log {
 }
 
 Write-Log "Update-BravePortable v$ScriptVersion starting (channel=$Channel, root=$PortableRoot)"
+
+# --- Rollback: restore app.old without downloading ---
+if ($Rollback) {
+    $appOld = "$appDir.old"
+    if (-not (Test-Path $appOld)) {
+        Write-Log "No app.old directory found - nothing to roll back" 'ERR'
+        exit 1
+    }
+    $rootPattern = (Resolve-Path $PortableRoot).Path.TrimEnd('\') + '\*'
+    Get-Process -Name brave, brave-portable -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            if ($_.Path -like $rootPattern) {
+                Write-Log "Stopping $($_.ProcessName) (PID $($_.Id)) for rollback"
+                $_ | Stop-Process -Force -ErrorAction Stop
+            }
+        }
+        catch { Write-Log "Could not stop PID $($_.Id): $($_.Exception.Message)" 'WARN' }
+    }
+    Start-Sleep -Seconds 2
+    $appBad = "$appDir.rollback-tmp"
+    if (Test-Path $appBad) { Remove-Item $appBad -Recurse -Force }
+    try {
+        if (Test-Path $appDir) { Rename-Item -Path $appDir -NewName 'app.rollback-tmp' -Force -ErrorAction Stop }
+        Rename-Item -Path $appOld -NewName 'app' -Force -ErrorAction Stop
+        if (Test-Path $appBad) { Remove-Item $appBad -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    catch {
+        Write-Log "Rollback failed: $($_.Exception.Message)" 'ERR'
+        if ((Test-Path $appBad) -and -not (Test-Path $appDir)) {
+            Rename-Item -Path $appBad -NewName 'app' -Force -ErrorAction SilentlyContinue
+        }
+        exit 1
+    }
+    $rolledVer = (Get-Item $braveExe).VersionInfo.ProductVersion
+    if (Test-Path $portappJson) {
+        try {
+            $raw = $rolledVer.Split('.')
+            $braveVer = if ($raw.Length -eq 4) { $raw[1..3] -join '.' } else { $rolledVer }
+            $json = Get-Content $portappJson -Raw | ConvertFrom-Json
+            $json.version = $braveVer
+            $json.date = (Get-Date -Format 'yyyy/MM/dd HH:mm:ss')
+            $jsonText = $json | ConvertTo-Json -Depth 10
+            $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+            [IO.File]::WriteAllText($portappJson, $jsonText, $utf8NoBom)
+        }
+        catch { Write-Log "Could not update portapp.json after rollback: $($_.Exception.Message)" 'WARN' }
+    }
+    Write-Log "Rolled back to $rolledVer"
+    exit 0
+}
 
 # --- Detect installed version (strip Chromium-major prefix if present) ---
 $currentVersion = $null
@@ -107,16 +174,34 @@ $channelKeyword = @{
 # --- Query GitHub releases ---
 Write-Log "Querying GitHub for latest $Channel release..."
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$ghHeaders = @{ 'User-Agent' = 'Brave-Portable-Updater' }
+if ($GitHubToken) { $ghHeaders['Authorization'] = "Bearer $GitHubToken" }
 try {
-    $releases = Invoke-RestMethod `
+    $ghResponse = Invoke-WebRequest `
         -Uri "https://api.github.com/repos/brave/brave-browser/releases?per_page=80" `
-        -Headers @{ 'User-Agent' = 'Brave-Portable-Updater' } `
-        -ErrorAction Stop
+        -Headers $ghHeaders -UseBasicParsing -ErrorAction Stop
+    $releases = $ghResponse.Content | ConvertFrom-Json
+    $rlRemaining = $ghResponse.Headers['X-RateLimit-Remaining']
+    if ($rlRemaining -and [int]$rlRemaining -le 10) {
+        Write-Log "GitHub API rate limit low: $rlRemaining requests remaining" 'WARN'
+    }
 }
 catch {
-    Write-Log "GitHub API request failed: $($_.Exception.Message)" 'ERR'
+    $statusCode = $null
+    if ($_.Exception.Response) { $statusCode = [int]$_.Exception.Response.StatusCode }
+    if ($statusCode -eq 403 -or $statusCode -eq 429) {
+        Write-Log "GitHub API rate limit exceeded. Wait or use -GitHubToken for 5000 req/hr." 'ERR'
+    }
+    else {
+        Write-Log "GitHub API request failed: $($_.Exception.Message)" 'ERR'
+    }
     exit 1
 }
+
+# --- Architecture detection ---
+$arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+$assetPattern = "^brave-v.*-win32-$arch\.zip$"
+Write-Log "Target architecture: $arch"
 
 $selectedAsset = $null
 $selectedRelease = $null
@@ -124,7 +209,7 @@ $selectedVersion = $null
 foreach ($r in $releases) {
     if ($r.name -notmatch $channelKeyword) { continue }
     if ($Channel -eq 'stable' -and $r.prerelease) { continue }
-    $a = $r.assets | Where-Object { $_.name -match '^brave-v.*-win32-x64\.zip$' } | Select-Object -First 1
+    $a = $r.assets | Where-Object { $_.name -match $assetPattern } | Select-Object -First 1
     if ($a) {
         $selectedAsset = $a
         $selectedRelease = $r
@@ -134,7 +219,7 @@ foreach ($r in $releases) {
 }
 
 if (-not $selectedAsset) {
-    Write-Log "No $Channel release with a win32-x64 zip asset found." 'ERR'
+    Write-Log "No $Channel release with a win32-$arch zip asset found." 'ERR'
     exit 1
 }
 $sizeMB = [math]::Round($selectedAsset.size / 1MB, 1)
@@ -192,11 +277,11 @@ if ($selectedRelease.body) {
 
 # --- Path-scoped process kill (NEVER touches the full install) ---
 $rootPattern = (Resolve-Path $PortableRoot).Path.TrimEnd('\') + '\*'
-$killed = @()
+$killed = [System.Collections.Generic.List[string]]::new()
 Get-Process -Name brave, brave-portable -ErrorAction SilentlyContinue | ForEach-Object {
     try {
         if ($_.Path -like $rootPattern) {
-            $killed += "$($_.ProcessName) (PID $($_.Id))"
+            $killed.Add("$($_.ProcessName) (PID $($_.Id))")
             $_ | Stop-Process -Force -ErrorAction Stop
         }
     }
@@ -292,8 +377,7 @@ catch {
     exit 1
 }
 if (Test-Path $appOld) {
-    try { Remove-Item $appOld -Recurse -Force -ErrorAction Stop }
-    catch { Write-Log "app.old cleanup failed (leftover safe to delete manually): $($_.Exception.Message)" 'WARN' }
+    Write-Log "Previous version retained at app.old (use -Rollback to restore)"
 }
 
 # --- Update portapp.json so the wrapper UI shows the right version ---

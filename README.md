@@ -22,6 +22,10 @@ This updater fixes both, plus a few extras:
 - **Authenticode signature verification** on the extracted `brave.exe`. Blocks the update if the binary is not signed by Brave Software, Inc.
 - **Best-effort SHA256 verification** when the release notes publish a hash.
 - **Updates `portapp.json`** so the wrapper UI shows the correct version.
+- **Rollback support.** The previous version is retained in `app.old\`. Run with `-Rollback` to swap back instantly.
+- **ARM64 auto-detection.** Downloads the correct asset for x64 or ARM64 Windows.
+- **GitHub API rate-limit awareness.** Detects 403/429 responses and suggests using `-GitHubToken`.
+- **Log rotation** at 1 MB (keeps one backup).
 - **Logs to `<root>\log\update.log`** in ISO timestamp format.
 - **Refuses to run** if the target dir doesn't look like a Portapps install (no `brave-portable.exe`, no `data\`).
 
@@ -63,6 +67,12 @@ Or download the ZIP and extract anywhere.
 
 # Quiet (file log only) - useful for scheduled tasks
 .\Update-BravePortable.ps1 -Quiet
+
+# Roll back to the previous version
+.\Update-BravePortable.ps1 -Rollback
+
+# Use a GitHub token to avoid API rate limits
+.\Update-BravePortable.ps1 -GitHubToken "ghp_..."
 ```
 
 Exit codes: `0` already-current or updated successfully, non-zero on failure.
@@ -93,14 +103,14 @@ schtasks /delete /tn BravePortableUpdate /f
 7. Extract zip to `<root>\app.new\`. If the zip has a single top-level folder, flatten it.
 8. Sanity-check `app.new\brave.exe` exists. If not, abort.
 9. Verify the Authenticode signature on `app.new\brave.exe`. Block the swap if the binary is not validly signed.
-10. Rename `app` to `app.old`, `app.new` to `app`, then delete `app.old`.
+10. Rename `app` to `app.old`, `app.new` to `app`. The previous version in `app.old` is retained for rollback.
 11. Patch `version` and `date` in `portapp.json` so the wrapper UI is consistent.
 
 ## Compatibility
 
 - Windows 10 / 11
 - PowerShell 5.1 or later (ships with Windows)
-- Targets the official Brave Windows x64 zip from <https://github.com/brave/brave-browser/releases>
+- Targets the official Brave Windows x64 and ARM64 zips from <https://github.com/brave/brave-browser/releases>
 - Designed for the [Portapps](https://github.com/portapps/brave-portable) wrapper layout (`<root>\app\`, `<root>\data\`, `<root>\brave-portable.exe`)
 
 ## License
