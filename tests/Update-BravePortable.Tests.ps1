@@ -45,7 +45,7 @@ Describe 'Version parsing' {
 
 Describe 'Channel keyword mapping' {
     BeforeAll {
-        $channelMap = @{
+        $script:channelMap = @{
             'stable'  = 'Release'
             'beta'    = 'Beta'
             'nightly' = 'Nightly'
@@ -53,15 +53,15 @@ Describe 'Channel keyword mapping' {
     }
 
     It 'maps stable to Release' {
-        $channelMap['stable'] | Should -Be 'Release'
+        $script:channelMap['stable'] | Should -Be 'Release'
     }
 
     It 'maps beta to Beta' {
-        $channelMap['beta'] | Should -Be 'Beta'
+        $script:channelMap['beta'] | Should -Be 'Beta'
     }
 
     It 'maps nightly to Nightly' {
-        $channelMap['nightly'] | Should -Be 'Nightly'
+        $script:channelMap['nightly'] | Should -Be 'Nightly'
     }
 }
 
@@ -105,7 +105,7 @@ Describe 'Asset pattern matching' {
 
 Describe 'Channel filtering logic' {
     BeforeAll {
-        $mockReleases = @(
+        $script:mockReleases = @(
             @{ name = 'Nightly v1.93.85'; prerelease = $true; tag_name = 'v1.93.85'; assets = @(
                 @{ name = 'brave-v1.93.85-win32-x64.zip'; browser_download_url = 'https://example.com/n.zip'; size = 230000000 }
             )}
@@ -123,7 +123,7 @@ Describe 'Channel filtering logic' {
         $arch = 'x64'
         $assetPattern = "^brave-v.*-win32-$arch\.zip$"
         $found = $null
-        foreach ($r in $mockReleases) {
+        foreach ($r in $script:mockReleases) {
             if ($r.name -notmatch $channelKeyword) { continue }
             if ($r.prerelease) { continue }
             $a = $r.assets | Where-Object { $_.name -match $assetPattern } | Select-Object -First 1
@@ -138,7 +138,7 @@ Describe 'Channel filtering logic' {
         $arch = 'x64'
         $assetPattern = "^brave-v.*-win32-$arch\.zip$"
         $found = $null
-        foreach ($r in $mockReleases) {
+        foreach ($r in $script:mockReleases) {
             if ($r.name -notmatch $channelKeyword) { continue }
             $a = $r.assets | Where-Object { $_.name -match $assetPattern } | Select-Object -First 1
             if ($a) { $found = $r; break }
@@ -152,7 +152,7 @@ Describe 'Channel filtering logic' {
         $arch = 'x64'
         $assetPattern = "^brave-v.*-win32-$arch\.zip$"
         $found = $null
-        foreach ($r in $mockReleases) {
+        foreach ($r in $script:mockReleases) {
             if ($r.name -notmatch $channelKeyword) { continue }
             $a = $r.assets | Where-Object { $_.name -match $assetPattern } | Select-Object -First 1
             if ($a) { $found = $r; break }
@@ -166,7 +166,7 @@ Describe 'Channel filtering logic' {
         $arch = 'arm64'
         $assetPattern = "^brave-v.*-win32-$arch\.zip$"
         $found = $null
-        foreach ($r in $mockReleases) {
+        foreach ($r in $script:mockReleases) {
             if ($r.name -notmatch $channelKeyword) { continue }
             if ($r.prerelease) { continue }
             $a = $r.assets | Where-Object { $_.name -match $assetPattern } | Select-Object -First 1
@@ -227,18 +227,18 @@ Describe 'Architecture detection' {
 
 Describe 'Brave API channel mapping' {
     BeforeAll {
-        $braveApiMap = @{ 'stable' = 'release'; 'beta' = 'beta'; 'nightly' = 'nightly' }
+        $script:braveApiMap = @{ 'stable' = 'release'; 'beta' = 'beta'; 'nightly' = 'nightly' }
     }
 
     It 'maps stable to release endpoint' {
-        $braveApiMap['stable'] | Should -Be 'release'
+        $script:braveApiMap['stable'] | Should -Be 'release'
     }
 
     It 'maps beta to beta endpoint' {
-        $braveApiMap['beta'] | Should -Be 'beta'
+        $script:braveApiMap['beta'] | Should -Be 'beta'
     }
 
     It 'maps nightly to nightly endpoint' {
-        $braveApiMap['nightly'] | Should -Be 'nightly'
+        $script:braveApiMap['nightly'] | Should -Be 'nightly'
     }
 }

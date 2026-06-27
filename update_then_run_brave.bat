@@ -1,5 +1,5 @@
 @echo off
-REM Brave-Portable-Updater v1.1.0 - update then launch
+REM Brave-Portable-Updater v1.1.1 - update then launch
 setlocal
 if not defined PORTABLE_ROOT set "PORTABLE_ROOT=C:\brave-portable-work"
 cd /d "%~dp0"

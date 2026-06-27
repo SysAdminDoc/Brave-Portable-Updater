@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Brave-Portable-Updater v1.1.0 - updates the Brave install inside a
+    Brave-Portable-Updater v1.1.1 - updates the Brave install inside a
     Portapps brave-portable directory, leaving the system-wide install
     and user profile untouched.
 
@@ -54,7 +54,7 @@ param(
     [switch]$BackupProfile
 )
 
-$ScriptVersion = "1.1.0"
+$ScriptVersion = "1.1.1"
 $ErrorActionPreference = 'Stop'
 
 # --- Paths ---
@@ -89,8 +89,7 @@ function Write-Log {
     $line = '{0} [{1}] {2}' -f (Get-Date -Format s), $Level, $Msg
     Add-Content -Path $logFile -Value $line -Encoding UTF8
     if (-not $Quiet) {
-        $color = switch ($Level) { 'WARN' { 'Yellow' } 'ERR' { 'Red' } default { 'White' } }
-        Write-Host $line -ForegroundColor $color
+        Write-Information $line -InformationAction Continue
     }
 }
 
@@ -107,7 +106,7 @@ function Send-Toast {
         $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Brave Portable Updater').Show($toast)
     }
-    catch { }
+    catch { Write-Log "Toast notification failed: $($_.Exception.Message)" 'WARN' }
 }
 
 Write-Log "Update-BravePortable v$ScriptVersion starting (channel=$Channel, root=$PortableRoot)"
@@ -305,9 +304,9 @@ if ($currentVersion -and -not $Force -and $currentVersion -ge $selectedVersion) 
 if (-not $Force) {
     try {
         [void][Windows.Networking.Connectivity.NetworkInformation, Windows, ContentType = WindowsRuntime]
-        $profile = [Windows.Networking.Connectivity.NetworkInformation]::GetInternetConnectionProfile()
-        if ($profile) {
-            $cost = $profile.GetConnectionCost()
+        $connectionProfile = [Windows.Networking.Connectivity.NetworkInformation]::GetInternetConnectionProfile()
+        if ($connectionProfile) {
+            $cost = $connectionProfile.GetConnectionCost()
             if ($cost.ApproachingDataLimit -or $cost.OverDataLimit -or $cost.Roaming -or
                 ($cost.NetworkCostType -ne [Windows.Networking.Connectivity.NetworkCostType]::Unrestricted -and
                  $cost.NetworkCostType -ne [Windows.Networking.Connectivity.NetworkCostType]::Unknown)) {
@@ -316,7 +315,7 @@ if (-not $Force) {
             }
         }
     }
-    catch { }
+    catch { Write-Log "Metered connection check unavailable: $($_.Exception.Message)" 'WARN' }
 }
 
 # --- WhatIf gate ---
