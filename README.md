@@ -1,129 +1,165 @@
-# Brave-Portable-Updater
+![Brave Portable Updater. Update the portable browser and leave the installed one alone.](assets/marketing/hero-1280x640.png)
 
-[![Version](https://img.shields.io/badge/version-1.1.1-blue?style=flat-square)](CHANGELOG.md)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+# Brave Portable Updater
+
+[![Version](https://img.shields.io/badge/version-1.2.0-18BFFF?style=flat-square)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-28D17C?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?style=flat-square&logo=windows)](#compatibility)
-[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?style=flat-square&logo=powershell&logoColor=white)](#usage)
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?style=flat-square&logo=powershell&logoColor=white)](#quick-start)
+[![Tests](https://img.shields.io/badge/tests-51%20passing-28D17C?style=flat-square)](#verification)
 
-A safe, path-scoped PowerShell updater for the [Portapps](https://github.com/portapps/brave-portable) `brave-portable` distribution. Updates the inner Brave bundle in place while leaving your system-wide Brave install and your portable user profile untouched.
+Keep an existing [Portapps Brave](https://github.com/portapps/brave-portable) bundle current without closing or changing the system-installed browser. The updater works inside the portable root, checks the download and publisher, keeps a rollback copy, and can back up the profile before swapping files.
 
-## Why this exists
+[Download v1.2.0](https://github.com/SysAdminDoc/Brave-Portable-Updater/releases/download/v1.2.0/Brave-Portable-Updater-v1.2.0.zip) | [Latest release](https://github.com/SysAdminDoc/Brave-Portable-Updater/releases/latest) | [Review the changelog](CHANGELOG.md)
 
-Most existing updater scripts have one of two problems:
+> This is an independent community project. It is not affiliated with Brave Software or Portapps.
 
-1. They run `Get-Process brave | Stop-Process`, which kills the **installed full version of Brave** along with the portable one, dropping every tab in your main session.
-2. They track versions by parsing version-stamped subfolder names under `app\`. Portapps doesn't use a version subfolder - it puts `brave.exe` and the Chromium bundle directly in `app\` - so those scripts re-download on every run.
+## Why use it
 
-This updater fixes both, plus a few extras:
+- **Your installed Brave stays open.** Process handling is limited to executables whose resolved path sits under the portable root.
+- **The replacement is checked before the swap.** Published SHA256 data is verified when available, and every extracted `brave.exe` must carry a valid Brave Software publisher signature.
+- **Recovery is built in.** The previous application bundle stays in `app.old` until the next successful update. Rollback verifies that bundle again before restoring it.
+- **Potentially broad changes are opt-in.** The updater does not touch Brave's machine-wide update policy unless you pass `-SuppressUpdateNag`.
 
-- **Path-scoped process termination.** Only stops `brave.exe` / `brave-portable.exe` whose `.Path` lives under the portable root. The full install is provably untouched.
-- **Version detection from the binary.** Reads `app\brave.exe`'s `VersionInfo.ProductVersion`, strips the Chromium-major prefix, and compares against [github.com/brave/brave-browser](https://github.com/brave/brave-browser) release tags.
-- **Atomic swap.** Extracts to `app.new\`, renames `app` to `app.old`, promotes `app.new` to `app`, then deletes `app.old`. A failed extract leaves the previous install intact.
-- **Authenticode signature verification** on the extracted `brave.exe`. Blocks the update if the binary is not signed by Brave Software, Inc.
-- **Best-effort SHA256 verification** when the release notes publish a hash.
-- **Updates `portapp.json`** so the wrapper UI shows the correct version.
-- **Rollback support.** The previous version is retained in `app.old\`. Run with `-Rollback` to swap back instantly.
-- **ARM64 auto-detection.** Downloads the correct asset for x64 or ARM64 Windows.
-- **GitHub API rate-limit awareness.** Detects 403/429 responses and suggests using `-GitHubToken`.
-- **Log rotation** at 1 MB (keeps one backup).
-- **Logs to `<root>\log\update.log`** in ISO timestamp format.
-- **Metered connection detection.** Skips download on metered/capped networks unless `-Force` is used.
-- **Profile backup** with `-BackupProfile`. Copies `data\` before updating, keeps the 3 most recent backups.
-- **Suppresses Brave's update nag** via registry key (when running as admin).
-- **`-WhatIf` support.** Preview what the updater would do without making changes.
-- **ETag caching.** Skips redundant GitHub API calls when no new releases exist.
-- **Refuses to run** if the target dir doesn't look like a Portapps install (no `brave-portable.exe`, no `data\`).
+## See the real runs
 
-## Files
+These captures come from PowerShell 5.1 runs on isolated fixtures. They are product output, not a recreated terminal mockup.
 
-| File | Purpose |
+### Preview before changing anything
+
+![WhatIf preview showing the selected Nightly release and no file changes](assets/screenshots/01-whatif-preview.png)
+
+`-WhatIf` resolves the requested channel and asset, then reports the pending action without downloading or replacing files.
+
+### Verified fresh install
+
+![Verified fresh install showing the SHA256 check, Brave publisher check, profile backup, and completed swap](assets/screenshots/02-verified-update.png)
+
+The fixture completed its download, SHA256 check, Authenticode publisher check, profile backup, directory swap, and `portapp.json` update.
+
+### Verified rollback
+
+![Verified rollback showing the Brave publisher check and restored version](assets/screenshots/03-verified-rollback.png)
+
+Rollback rechecked the retained Brave bundle before restoring it. The fixture profile remained in place.
+
+## Quick start
+
+Download the release ZIP and extract it anywhere. PowerShell 5.1 is already included with supported Windows versions, so there is no installer or extra runtime.
+
+Preview an update first:
+
+```powershell
+.\Update-BravePortable.ps1 `
+    -PortableRoot 'D:\PortableApps\Brave' `
+    -Channel stable `
+    -WhatIf
+```
+
+Run the update and keep a separate profile backup:
+
+```powershell
+.\Update-BravePortable.ps1 `
+    -PortableRoot 'D:\PortableApps\Brave' `
+    -Channel stable `
+    -BackupProfile
+```
+
+The target must contain the Portapps wrapper, `brave-portable.exe`, and its `data` directory. If `-PortableRoot` is omitted, the default is `C:\brave-portable-work`.
+
+## Common commands
+
+```powershell
+# Let the script pick the newest available channel
+.\Update-BravePortable.ps1 -PortableRoot 'D:\PortableApps\Brave' -Channel auto
+
+# Reinstall the current release after suspected corruption
+.\Update-BravePortable.ps1 -PortableRoot 'D:\PortableApps\Brave' -Force
+
+# Restore the retained app.old bundle
+.\Update-BravePortable.ps1 -PortableRoot 'D:\PortableApps\Brave' -Rollback
+
+# Write to the file log without interactive status output
+.\Update-BravePortable.ps1 -PortableRoot 'D:\PortableApps\Brave' -Quiet
+
+# Raise the GitHub API allowance for repeated checks
+.\Update-BravePortable.ps1 -PortableRoot 'D:\PortableApps\Brave' -GitHubToken $env:GITHUB_TOKEN
+```
+
+## Options
+
+| Option | What it does |
 | --- | --- |
-| `Update-BravePortable.ps1` | The updater. |
-| `Update-BravePortable.bat` | Forwards args to the PS1, pauses on non-zero exit. |
-| `update.bat` | One-click default run (stable channel, pauses at end). |
-| `update_then_run_brave.bat` | Update, then launch `brave-portable.exe`. Set `PORTABLE_ROOT` env var to override the default path. |
-| `run_at_boot.ps1` | Registers a Scheduled Task that runs the updater at every system startup. |
+| `-PortableRoot <path>` | Selects the existing Portapps Brave directory. |
+| `-Channel stable\|beta\|nightly\|auto` | Selects a release channel. `auto` compares all matching releases and picks the newest version. |
+| `-BackupProfile` | Copies `data` before the update and keeps the three newest profile backups. A failed requested backup stops the update. |
+| `-Rollback` | Verifies and restores the retained `app.old` bundle. |
+| `-WhatIf` | Resolves the release and previews the action without changing files. |
+| `-Force` | Reinstalls even when the current version matches. It also allows downloading on a metered connection. |
+| `-Quiet` | Keeps status in `<root>\log\update.log` without interactive output. |
+| `-GitHubToken <token>` | Uses an existing token for a higher GitHub API rate limit. |
+| `-SuppressUpdateNag` | Opts into a machine-wide Brave registry policy. This can also affect an installed Brave browser. |
 
-## Install
+Exit code `0` means the bundle was already current, updated successfully, rolled back successfully, or completed a WhatIf preview. Failures return a nonzero exit code and write the reason to the log.
 
-Copy the contents of this repo into your Brave-Portable updater dir of choice (it doesn't have to live next to `brave-portable.exe` - the script accepts `-PortableRoot`):
+## Safety model
 
-```powershell
-git clone https://github.com/SysAdminDoc/Brave-Portable-Updater.git
-```
+1. Validate the Portapps wrapper and profile directory under the requested root.
+2. Read the installed version from `app\brave.exe` and select a matching official GitHub release for x64 or ARM64.
+3. Download to the Windows temporary directory and verify the published SHA256 digest when GitHub provides one.
+4. Extract into `app.new`, then require a valid Authenticode signature issued to Brave Software, Inc.
+5. Stop only Brave processes whose executable paths resolve under the portable root.
+6. Move the active bundle to `app.old`, promote the verified bundle, and update `portapp.json` without a UTF-8 byte-order mark.
 
-Or download the ZIP and extract anywhere.
+If GitHub does not publish a usable digest, the updater reports that fact and still requires the signed Brave executable before any swap. Existing `app.old` content is not removed until the replacement has passed extraction, publisher verification, and any requested profile backup.
 
-## Usage
-
-```powershell
-# Default: stable channel, targets C:\brave-portable-work
-.\Update-BravePortable.ps1
-
-# Other channels
-.\Update-BravePortable.ps1 -Channel beta
-.\Update-BravePortable.ps1 -Channel nightly
-.\Update-BravePortable.ps1 -Channel auto   # picks whichever channel has the newest release
-
-# Different install location
-.\Update-BravePortable.ps1 -PortableRoot "D:\Apps\Brave"
-
-# Reinstall current version (e.g. after corruption)
-.\Update-BravePortable.ps1 -Force
-
-# Quiet (file log only) - useful for scheduled tasks
-.\Update-BravePortable.ps1 -Quiet
-
-# Roll back to the previous version
-.\Update-BravePortable.ps1 -Rollback
-
-# Use a GitHub token to avoid API rate limits
-.\Update-BravePortable.ps1 -GitHubToken "ghp_..."
-
-# Preview what would happen without making changes
-.\Update-BravePortable.ps1 -WhatIf
-
-# Back up profile data before updating
-.\Update-BravePortable.ps1 -BackupProfile
-```
-
-Exit codes: `0` already-current or updated successfully, non-zero on failure.
-
-## Autorun at boot
+## Run at startup
 
 ```powershell
-# Elevates and registers a Scheduled Task named "BravePortableUpdate"
 .\run_at_boot.ps1
 ```
 
-Manage the task:
+The helper elevates once and registers a scheduled task named `BravePortableUpdate`. The task runs the updater quietly at system startup and stops after 15 minutes.
 
 ```cmd
-schtasks /run    /tn BravePortableUpdate
-schtasks /query  /tn BravePortableUpdate /v /fo LIST
+schtasks /run /tn BravePortableUpdate
+schtasks /query /tn BravePortableUpdate /v /fo LIST
 schtasks /delete /tn BravePortableUpdate /f
 ```
 
-## How it actually works
-
-1. Sanity-check the target dir: must contain `brave-portable.exe` and `data\`.
-2. Read installed version from `app\brave.exe`'s `ProductVersion`. Brave's `ProductVersion` is the Chromium major prefixed onto the Brave version (e.g. `148.1.90.122` = Chromium 148 + Brave 1.90.122). Drop the first segment to get the comparable Brave version (`1.90.122`).
-3. Query `api.github.com/repos/brave/brave-browser/releases?per_page=80`. Filter by channel keyword (`Release` / `Beta` / `Nightly`), pick the first release with a `brave-v*-win32-x64.zip` asset.
-4. If installed >= remote, exit 0. Otherwise download via BITS (fallback `Invoke-WebRequest`) to `%TEMP%`.
-5. If the release notes contain a SHA256 line matching the asset name, verify the hash.
-6. Find every `brave.exe` / `brave-portable.exe` process whose `.Path` starts with the portable root. Stop only those. Sleep 2s for file handles to release.
-7. Extract zip to `<root>\app.new\`. If the zip has a single top-level folder, flatten it.
-8. Sanity-check `app.new\brave.exe` exists. If not, abort.
-9. Verify the Authenticode signature on `app.new\brave.exe`. Block the swap if the binary is not validly signed.
-10. Rename `app` to `app.old`, `app.new` to `app`. The previous version in `app.old` is retained for rollback.
-11. Patch `version` and `date` in `portapp.json` so the wrapper UI is consistent.
-
 ## Compatibility
 
-- Windows 10 / 11
-- PowerShell 5.1 or later (ships with Windows)
-- Targets the official Brave Windows x64 and ARM64 zips from <https://github.com/brave/brave-browser/releases>
-- Designed for the [Portapps](https://github.com/portapps/brave-portable) wrapper layout (`<root>\app\`, `<root>\data\`, `<root>\brave-portable.exe`)
+- Windows 10 or Windows 11
+- Windows PowerShell 5.1 or PowerShell 7+
+- Official Brave Windows x64 and ARM64 ZIP releases
+- Portapps layout with `<root>\app`, `<root>\data`, and `<root>\brave-portable.exe`
+
+## Verification
+
+Version 1.2.0 passed 51 Pester tests in Windows PowerShell 5.1 and PowerShell 7. The release exercise also completed a real stable download, SHA256 verification, Brave publisher verification, profile backup, fresh install, and signed rollback against isolated fixtures. The system Brave executable, its running processes, and the machine-wide policy state were checked before and after the exercise and did not change.
+
+Run the local suite:
+
+```powershell
+Invoke-Pester .\tests
+```
+
+Build the release ZIP and checksums:
+
+```powershell
+.\tools\Build-Release.ps1
+```
+
+## Project files
+
+| Path | Purpose |
+| --- | --- |
+| `Update-BravePortable.ps1` | Main updater and rollback command. |
+| `Update-BravePortable.bat` | Argument-forwarding command prompt launcher. |
+| `update.bat` | One-click stable update. |
+| `update_then_run_brave.bat` | Updates, then opens the portable wrapper. |
+| `run_at_boot.ps1` | Scheduled task registration helper. |
+| `tests` | PowerShell 5.1 and PowerShell 7 regression coverage. |
 
 ## License
 

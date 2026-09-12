@@ -17,6 +17,7 @@ app.new/
 app.old/
 log/
 *.log
+dist/
 
 # Windows / editor cruft
 Thumbs.db
@@ -29,11 +30,12 @@ desktop.ini
 # OS junk
 .DS_Store
 
-# Markdown files local-only (except README)
-*.md
-!README.md
+# Local planning documents
+LOGO_PROMPTS.md
+RESEARCH.md
+Roadmap_Blocked.md
+branding/
 
-# AI config
-.ai/
+# Local project context
 PROJECT_CONTEXT.md
 CONTINUATION_PROMPT.md
