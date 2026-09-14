@@ -8,6 +8,16 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?style=flat-square&logo=powershell&logoColor=white)](#quick-start)
 [![Tests](https://img.shields.io/badge/tests-51%20passing-28D17C?style=flat-square)](#verification)
 
+<p align="center">
+  <a href="https://ko-fi.com/X8K126YVER">
+    <img height="42" src="https://storage.ko-fi.com/cdn/kofi2.png?v=3" alt="Buy me a coffee on Ko-fi" />
+  </a>
+</p>
+
+<p align="center">
+  <sub><em>If this project helps you, a coffee helps me keep working on it.</em></sub>
+</p>
+
 Keep an existing [Portapps Brave](https://github.com/portapps/brave-portable) bundle current without closing or changing the system-installed browser. The updater works inside the portable root, checks the download and publisher, keeps a rollback copy, and can back up the profile before swapping files.
 
 [Download v1.2.0](https://github.com/SysAdminDoc/Brave-Portable-Updater/releases/download/v1.2.0/Brave-Portable-Updater-v1.2.0.zip) | [Latest release](https://github.com/SysAdminDoc/Brave-Portable-Updater/releases/latest) | [Review the changelog](CHANGELOG.md)
